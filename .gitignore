@@ -1,0 +1,40 @@
+# Environment & Secrets
+.env
+*.env
+deploy/.env
+device_credentials.json
+*.pem
+*.key
+*.crt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+ENV/
+
+# PlatformIO & Embedded
+.pio/
+.pioenvs/
+.piolibdeps/
+.clangd/
+
+# SQLite & Runtime Data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+backend/data/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
