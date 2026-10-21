@@ -1,0 +1,61 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - app_net
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-localhost}
+      - DATABASE_PATH=/data/fire_alarm.db
+      - DEVICE_CREDENTIALS_FILE=/data/device_credentials.json
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    volumes:
+      - app_data:/data
+    networks:
+      - app_net
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["python", "-m", "app.worker_main"]
+    restart: unless-stopped
+    environment:
+      - DATABASE_PATH=/data/fire_alarm.db
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - OFFLINE_TIMEOUT_SECONDS=${OFFLINE_TIMEOUT_SECONDS:-60}
+      - ALARM_REMINDER_INTERVAL_SECONDS=${ALARM_REMINDER_INTERVAL_SECONDS:-300}
+    volumes:
+      - app_data:/data
+    networks:
+      - app_net
+    depends_on:
+      - api
+
+networks:
+  app_net:
+    driver: bridge
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:
