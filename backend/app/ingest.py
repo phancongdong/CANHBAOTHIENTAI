@@ -95,17 +95,10 @@ def ingest_event(
                 (rec_key, event.device_id, event.incident_id, rec_msg, raw_payload, now_iso, now_iso)
             )
 
-        # 3. Handle Notification Outbox
-        if event.event in ["alarm_started", "alarm_cleared", "sensor_fault", "sensor_recovered"]:
-            if event.event == "alarm_started":
-                inc_tag = event.incident_id or f"boot-{event.boot_id}-seq-{event.seq}"
-                notif_key = f"{event.device_id}:{inc_tag}:alarm_started"
-            elif event.event == "alarm_cleared":
-                inc_tag = event.incident_id or f"boot-{event.boot_id}-seq-{event.seq}"
-                notif_key = f"{event.device_id}:{inc_tag}:alarm_cleared"
-            else:
-                notif_key = f"{event.device_id}:{event.event}:{event.boot_id}:{event.seq}"
-
+        # 3. Handle Notification Outbox for Disaster Events
+        # Routine heartbeats do NOT trigger spam notifications
+        if event.event != "heartbeat":
+            notif_key = f"{event.device_id}:{event.event}:{event.boot_id}:{event.seq}"
             msg = format_telegram_message(event, now)
             cursor.execute(
                 """

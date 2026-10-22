@@ -1,133 +1,102 @@
 #include "alarm_logic.h"
+#include <cstdio>
 
-AlarmLogic::AlarmLogic(const AlarmConfig& config)
-    : m_config(config),
-      m_state(AlarmState::NORMAL),
-      m_latched(false),
-      m_incident_id(0),
-      m_suspect_active(false),
-      m_suspect_start_ms(0),
-      m_fault_active(false),
-      m_fault_start_ms(0),
-      m_clear_condition_start_ms(0),
-      m_in_clear_window(false),
-      m_manual_ack_requested(false) {}
+DisasterEvaluation DisasterAlarmLogic::evaluate(const SensorReading& reading) {
+    DisasterEvaluation eval;
+    eval.connection_ok = reading.connection_ok;
 
-void AlarmLogic::restoreLatchedState(bool latched, uint32_t incident_id) {
-    m_latched = latched;
-    if (latched) {
-        m_state = AlarmState::ALARM;
-        m_incident_id = (incident_id > 0) ? incident_id : 1;
+    // 1. Kiểm tra kết nối cảm biến
+    if (!reading.connection_ok) {
+        eval.cadence = CadenceMode::CADENCE_1HZ;
+        eval.lcd_line1 = "Thong Bao Loi";
+        eval.lcd_line2 = "Mat ket noi CB!";
+        eval.alert_event = "sensor_fault";
+        return eval;
     }
-}
 
-void AlarmLogic::acknowledgeLocalClear(uint32_t now_ms) {
-    m_manual_ack_requested = true;
-}
-
-const char* AlarmLogic::stateToString(AlarmState s) {
-    switch (s) {
-        case AlarmState::NORMAL: return "NORMAL";
-        case AlarmState::SUSPECT: return "SUSPECT";
-        case AlarmState::ALARM: return "ALARM";
-        case AlarmState::SENSOR_FAULT: return "SENSOR_FAULT";
-        default: return "UNKNOWN";
-    }
-}
-
-const char* AlarmLogic::transitionToString(AlarmTransition t) {
-    switch (t) {
-        case AlarmTransition::NONE: return "NONE";
-        case AlarmTransition::ALARM_STARTED: return "alarm_started";
-        case AlarmTransition::ALARM_CLEARED: return "alarm_cleared";
-        case AlarmTransition::SENSOR_FAULT_STARTED: return "sensor_fault";
-        case AlarmTransition::SENSOR_FAULT_CLEARED: return "sensor_recovered";
-        default: return "unknown";
-    }
-}
-
-AlarmTransition AlarmLogic::update(const SensorReading& reading, uint32_t now_ms) {
-    // 1. Hardware / sensor fault handling
-    bool is_fault = reading.hardware_fault || (!reading.flame_valid && !reading.temperature_valid);
-
-    if (is_fault) {
-        if (!m_fault_active) {
-            m_fault_active = true;
-            m_fault_start_ms = now_ms;
-        }
-
-        if (m_state != AlarmState::ALARM) { // Do not mask an active alarm with sensor fault
-            if ((now_ms - m_fault_start_ms) >= m_config.sensor_fault_ms && m_state != AlarmState::SENSOR_FAULT) {
-                m_state = AlarmState::SENSOR_FAULT;
-                return AlarmTransition::SENSOR_FAULT_STARTED;
-            }
-        }
-        return AlarmTransition::NONE;
+    // 2. Nhánh Cảm biến Rung Động (RĐ)
+    if (reading.vibration_g > 0.5f) {
+        eval.vib_level = VibrationLevel::EARTHQUAKE;
+    } else if (reading.vibration_g >= 0.2f) {
+        eval.vib_level = VibrationLevel::LIGHT;
     } else {
-        if (m_state == AlarmState::SENSOR_FAULT) {
-            m_fault_active = false;
-            m_state = AlarmState::NORMAL;
-            return AlarmTransition::SENSOR_FAULT_CLEARED;
-        }
-        m_fault_active = false;
+        eval.vib_level = VibrationLevel::SAFE;
     }
 
-    // 2. Fire condition evaluation
-    bool flame_trigger = reading.flame_valid && reading.flame_detected;
-    bool temp_trigger = reading.temperature_valid && (reading.temperature_c >= m_config.temp_alarm_c);
-    bool fire_condition = flame_trigger || temp_trigger;
-
-    // 3. Alarm State Transitions
-    if (m_state == AlarmState::ALARM || m_latched) {
-        // While in ALARM, check if conditions are safe enough to allow clearing
-        bool flame_safe = reading.flame_valid && !reading.flame_detected;
-        bool temp_safe = reading.temperature_valid && (reading.temperature_c <= m_config.temp_clear_c);
-
-        if (flame_safe && temp_safe) {
-            if (!m_in_clear_window) {
-                m_in_clear_window = true;
-                m_clear_condition_start_ms = now_ms;
-            } else if ((now_ms - m_clear_condition_start_ms) >= m_config.clear_ms) {
-                // Clear conditions sustained long enough
-                // Requires either local acknowledgement or clear window completion
-                m_latched = false;
-                m_state = AlarmState::NORMAL;
-                m_in_clear_window = false;
-                m_suspect_active = false;
-                m_manual_ack_requested = false;
-                return AlarmTransition::ALARM_CLEARED;
-            }
-        } else {
-            // Unsafe conditions resumed, reset clear window
-            m_in_clear_window = false;
-        }
-        return AlarmTransition::NONE;
-    }
-
-    // Currently NORMAL or SUSPECT
-    if (fire_condition) {
-        if (!m_suspect_active) {
-            m_suspect_active = true;
-            m_suspect_start_ms = now_ms;
-            m_state = AlarmState::SUSPECT;
-        } else {
-            if ((now_ms - m_suspect_start_ms) >= m_config.confirm_ms) {
-                // Confirmed alarm!
-                m_state = AlarmState::ALARM;
-                m_latched = true;
-                m_incident_id++;
-                m_suspect_active = false;
-                m_in_clear_window = false;
-                return AlarmTransition::ALARM_STARTED;
-            }
-        }
+    // 3. Nhánh Cảm biến Ngọn Lửa (NL) - Tăng độ nhạy phát hiện lửa xa
+    if (reading.flame_raw < 2800) {
+        eval.flame_level = FlameLevel::FIRE_ALARM;
+    } else if (reading.flame_raw <= 3600) {
+        eval.flame_level = FlameLevel::EARLY_WARN;
     } else {
-        if (m_suspect_active) {
-            // False alarm or transient noise before confirmation threshold
-            m_suspect_active = false;
-            m_state = AlarmState::NORMAL;
-        }
+        eval.flame_level = FlameLevel::SAFE;
     }
 
-    return AlarmTransition::NONE;
+    // 4. Nhánh Cảm biến Nhiệt Độ (NĐ)
+    if (reading.temperature_c > 45.0f) {
+        eval.temp_level = TempLevel::HIGH;
+    } else if (reading.temperature_c >= 38.0f) {
+        eval.temp_level = TempLevel::MEDIUM;
+    } else {
+        eval.temp_level = TempLevel::SAFE;
+    }
+
+    // 5. Tổng hợp theo mức độ ưu tiên theo đúng sơ đồ
+    // Ưu tiên 1: Cảnh báo khẩn cấp (Còi: ON 10Hz, LED: ON 10Hz)
+    if (eval.vib_level == VibrationLevel::EARTHQUAKE) {
+        eval.cadence = CadenceMode::CADENCE_10HZ;
+        eval.lcd_line1 = "Dong Dat";
+        eval.alert_event = "earthquake";
+        eval.is_emergency = true;
+    } else if (eval.flame_level == FlameLevel::FIRE_ALARM) {
+        eval.cadence = CadenceMode::CADENCE_10HZ;
+        eval.lcd_line1 = "Canh bao chay";
+        eval.alert_event = "fire_alarm";
+        eval.is_emergency = true;
+    } else if (eval.temp_level == TempLevel::HIGH) {
+        eval.cadence = CadenceMode::CADENCE_10HZ;
+        eval.lcd_line1 = "Nhiet do cao";
+        eval.alert_event = "temp_high";
+        eval.is_emergency = true;
+    }
+    // Ưu tiên 2: Cảnh báo mức trung bình / sớm (Còi: ON 1Hz, LED: ON 1Hz)
+    else if (eval.vib_level == VibrationLevel::LIGHT) {
+        eval.cadence = CadenceMode::CADENCE_1HZ;
+        eval.lcd_line1 = "Rung nhe";
+        eval.alert_event = "vibration_light";
+        eval.is_warning = true;
+    } else if (eval.flame_level == FlameLevel::EARLY_WARN) {
+        eval.cadence = CadenceMode::CADENCE_1HZ;
+        eval.lcd_line1 = "Canh bao som";
+        eval.alert_event = "flame_early";
+        eval.is_warning = true;
+    } else if (eval.temp_level == TempLevel::MEDIUM) {
+        eval.cadence = CadenceMode::CADENCE_1HZ;
+        eval.lcd_line1 = "Nhiet do TB";
+        eval.alert_event = "temp_medium";
+        eval.is_warning = true;
+    }
+    // Ưu tiên 3: An toàn (Còi: OFF, LED: OFF)
+    else {
+        eval.cadence = CadenceMode::OFF;
+        eval.lcd_line1 = "An Toan";
+        eval.alert_event = "safe";
+    }
+
+    // Định dạng Dòng 2 hiển thị LCD: "RD:0.1g L:3500 T:28"
+    char buf[20];
+    snprintf(buf, sizeof(buf), "R:%.2fg L:%d T:%.0f",
+             reading.vibration_g, reading.flame_raw, reading.temperature_c);
+    eval.lcd_line2 = buf;
+
+    return eval;
+}
+
+bool DisasterAlarmLogic::hasStatusChanged(const DisasterEvaluation& current, std::string& out_event) {
+    if (current.alert_event != m_last_event) {
+        m_last_event = current.alert_event;
+        out_event = current.alert_event;
+        return true;
+    }
+    return false;
 }

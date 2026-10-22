@@ -8,12 +8,15 @@ class TelemetryEventIn(BaseModel):
     seq: int = Field(..., ge=0)
     uptime_ms: int = Field(..., ge=0)
     sample_age_ms: int = Field(..., ge=0)
+    vibration_g: Optional[float] = None
+    flame_raw: Optional[int] = None
     temperature_c: Optional[float] = None
     flame_detected: Optional[bool] = None
     sensor_fault: bool
     alarm_state: Literal["NORMAL", "SUSPECT", "ALARM", "SENSOR_FAULT"]
     alarm_latched: bool
-    event: Literal["heartbeat", "alarm_started", "alarm_cleared", "sensor_fault", "sensor_recovered"]
+    event: str
+    lcd_message: Optional[str] = None
     incident_id: Optional[str] = None
 
 class TelemetryResponse(BaseModel):

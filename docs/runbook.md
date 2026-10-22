@@ -109,6 +109,63 @@ Chỉ khi kết quả trả về `ok`, file backup mới được đổi tên ch
   2. Điều chỉnh biến trở độ nhạy trên module cảm biến lửa (xoay ngược chiều kim đồng hồ để giảm độ nhạy).
   3. Lắp thêm chụp che hướng quang học (optical shield) để giới hạn góc nhìn của cảm biến lửa vào đúng khu vực cần giám sát.
 
+### 4.4 Khắc Phục Sự Cố: Còi Báo Động Không Kêu (Buzzer Troubleshooting Guide)
+
+Khi xảy ra sự kiện báo động (cháy, rung lắc mạnh, nhiệt độ cao) hoặc khi nhấn nút test mà còi **hoàn toàn không kêu**, hãy kiểm tra theo các bước sau:
+
+#### A. Bảng Chẩn Đoán Triệu Chứng & Nguyên Nhân
+| Triệu Chứng | Nguyên Nhân Khả Dĩ | Cách Khắc Phục |
+| :--- | :--- | :--- |
+| **Bật nguồn không kêu tiếng bíp nào** | Sai chân GPIO, chưa cắm nguồn, hoặc sai loại còi | Kiểm tra còi cắm đúng chân (GPIO 25 hoặc 19). Kiểm tra nguồn 5V/GND. |
+| **Còi kêu "tách" 1 tiếng nhỏ rồi im re** | Dùng nhầm **Còi Thụ Động (Passive Buzzer)** | Đổi `#define BUZZER_IS_PASSIVE 1` trong file `.ino` để phát xung tần số `tone(2500Hz)`. |
+| **Còi kêu liên tục không thể tắt** | Module còi kích mức **LOW (Active LOW)** | Đổi `#define BUZZER_ACTIVE_LEVEL LOW` trong file `.ino`. |
+| **Còi kêu rất nhỏ/rè, ESP32 bị reset/brownout** | Cắm còi trực tiếp vào chân GPIO ESP32 (thiếu dòng) | Cần mạch đệm Transistor NPN (S8050) và cấp nguồn 5V riêng cho còi. |
+| **Chưa bóc tem niêm phong trên còi** | Decal "REMOVE SEAL AFTER WASHING" bịt kín lỗ âm | Bóc miếng decal tròn dán trên mặt còi. |
+| **Màn hình LCD báo "MAT KET NOI CB" và còi không kêu** | Lỏng dây cảm biến I2C/DHT khiến hệ thống dừng quét | Cắm lại chân SDA/SCL (GPIO 21/22) của MPU6050 và Data của DHT11. |
+
+#### B. 4 Cách Kiểm Tra (Test) Còi Nhanh Nhất
+1. **Kiểm tra tự động khi cắm nguồn (Power-On Self Test):**
+   - Mỗi lần ESP32 được cấp nguồn hoặc reset, firmware tự động phát **2 tiếng bíp ngắn** ("Bíp - Bíp") trong 300ms đầu tiên.
+   - Nếu có tiếng bíp: Phần cứng còi, mạch driver và chân GPIO hoạt động 100% bình thường.
+   - Nếu không có tiếng bíp: Lỗi chắc chắn nằm ở đấu nối vật lý, loại còi hoặc chân GPIO.
+2. **Kiểm tra bằng lệnh Serial Monitor (Không cần bấm nút vật lý):**
+   - Mở Serial Monitor (tốc độ baud: `115200`).
+   - Gõ chữ `t` (hoặc `b`) rồi bấm Send.
+   - Còi sẽ kêu liên tục trong 1 giây để kiểm tra âm lượng.
+3. **Kiểm tra bằng nút bấm cứng (GPIO 15):**
+   - Nhấn và giữ nút Test (nối giữa GPIO 15 và GND).
+   - Còi sẽ phát 3 tiếng bíp dồn dập và LCD hiển thị `TEST COI & LED`.
+4. **Kiểm tra phân biệt Active Buzzer vs Passive Buzzer:**
+   - Tháo còi ra khỏi mạch, lấy 2 dây nối thẳng 2 chân còi vào nguồn 3.3V/5V và GND:
+     - Nếu còi **kêu tít tít liên tục**: Đó là **Active Buzzer** (Còi chủ động). Cấu hình: `BUZZER_IS_PASSIVE 0`.
+     - Nếu còi chỉ kêu **"tách"** một tiếng rồi im: Đó là **Passive Buzzer** (Còi thụ động). Cấu hình: `BUZZER_IS_PASSIVE 1`.
+
+### 4.5 Cân Chỉnh & Tăng Độ Nhạy Cảm Biến Lửa (Flame Sensor Sensitivity Tuning)
+
+#### A. Nguyên Lý Giá Trị ADC Của Cảm Biến Lửa Hồng Ngoại
+Cảm biến lửa sử dụng mắt thu hồng ngoại (bước sóng 760nm - 1100nm) nối vào chân **AO (GPIO 34)** của ESP32:
+- **Khi KHÔNG có lửa (Bình thường):** Mắt thu có nội trở rất cao -> Điện áp AO xấp xỉ 3.3V -> Giá trị ADC đọc được rất cao: **`3600 - 4095`**.
+- **Khi CÓ lửa (Bật lửa, que diêm, đám cháy):** Bức xạ hồng ngoại làm nội trở mắt thu giảm mạnh -> Điện áp AO tụt xuống thấp -> Giá trị ADC tụt xuống: **`0 - 2800`** (càng gần và lửa càng to thì giá trị càng nhỏ tiến về 0).
+- **Quy tắc tăng độ nhạy:** Để cảm biến **bắt được lửa ở khoảng cách xa hơn (> 1 mét)** hoặc **ngọn lửa nhỏ hơn**, cần **NÂNG NGƯỠNG ADC LÊN CAO** (nâng từ 1600 lên 2800).
+
+#### B. 3 Mức Độ Nhạy Cấu Hình Trong Firmware (`ESP32_CanhBaoThienTai.ino`)
+Đổi dòng `#define FLAME_SENSITIVITY_MODE` ở đầu file:
+- **Mức 1: CỰC NHẠY (`FLAME_SENSITIVITY_MODE 1` - Mặc định đã bật):**
+  - Ngưỡng Báo Cháy: `ADC < 2800` (Còi 10Hz dồn dập).
+  - Ngưỡng Cảnh Báo Sớm: `2800 <= ADC <= 3600` (Còi 1Hz).
+  - Phù hợp: Thử nghiệm bật lửa cách 0.8m - 1.5m, phát hiện nhanh tia lửa chớp.
+- **Mức 2: TIÊU CHUẨN (`FLAME_SENSITIVITY_MODE 2`):**
+  - Ngưỡng Báo Cháy: `ADC < 2200` | Sớm: `3300`.
+  - Phù hợp: Môi trường phòng khách, phòng ngủ gia đình thông thường.
+- **Mức 3: CHỐNG NHIỄU (`FLAME_SENSITIVITY_MODE 3`):**
+  - Ngưỡng Báo Cháy: `ADC < 1600` | Sớm: `3000`.
+  - Phù hợp: Nơi có nhiều đèn sợi đốt/halogen hoặc ánh nắng chiếu trực tiếp.
+
+#### C. Cách Kiểm Tra Trực Quan Giá Trị Cảm Biến Lửa
+1. Nhìn dòng 1 màn hình LCD 1602: Ký hiệu `L: xxxx` chính là giá trị ADC thực tế của cảm biến lửa.
+2. Hoặc mở Serial Monitor (115200): Quan sát trường `NL: xxxx`.
+3. Cầm bật lửa quẹt thử ở các cự ly khác nhau (1.5m, 1m, 0.5m) và quan sát số `L:` giảm xuống. Nếu số `L:` giảm xuống dưới ngưỡng `NL_FIRE_MAX` (2800), còi sẽ báo động ngay lập tức.
+
 ---
 
 ## 5. Bảng Tiêu Chí Nghiệm Thu Hệ Thống (Acceptance Checklist)

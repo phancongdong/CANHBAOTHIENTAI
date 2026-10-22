@@ -38,3 +38,37 @@
 2. **Bước 2:** Đo điện áp cấp và điện áp đầu ra tín hiệu (Vout) bằng đồng hồ vạn năng (VOM).
 3. **Bước 3:** Cập nhật file này từ `UNVERIFIED` thành mã linh kiện cụ thể và link datasheet.
 4. **Bước 4:** Chỉ mở khóa nạp firmware trên thiết bị thực tế sau khi toàn bộ bảng trên đã được xác thực `VERIFIED`.
+
+---
+
+## 4. Hướng Dẫn Đấu Nối & Kiểm Tra Phần Cứng Còi (Buzzer Hardware Gate)
+
+### 4.1 Phân Biệt 2 Loại Còi: Active Buzzer vs Passive Buzzer
+- **Còi Chủ Động (Active Buzzer):**
+  - Đặc điểm: Mặt dưới được bọc kín bằng keo đen bóng (Epoxy), mặt trên thường có tem tròn ghi "REMOVE SEAL AFTER WASHING".
+  - Nguyên lý: Tích hợp sẵn mạch dao động bên trong. Khi cấp điện áp DC (3.3V hoặc 5V), còi tự động phát âm thanh ở tần số cố định (~2.3kHz - 2.5kHz).
+  - Điều khiển: Bằng lệnh xuất mức logic `HIGH` (hoặc `LOW` nếu module kích âm).
+- **Còi Thụ Động (Passive Buzzer):**
+  - Đặc điểm: Mặt dưới lộ rõ bảng mạch PCB màu xanh lá cây, không có keo đen bọc kín.
+  - Nguyên lý: Không có mạch dao động, cấu tạo như một loa nam châm mini. Cấp điện DC cố định còi **CHỈ PHÁT RA TIẾNG TÁCH NHỎ RỒI IM LẶNG**.
+  - Điều khiển: BẮT BUỘC dùng xung PWM với tần số cụ thể (hàm `tone(pin, 2500)`).
+
+### 4.2 Sơ Đồ Mạch Đệm Transistor Lái Còi (Tránh Cháy GPIO ESP32)
+Tuyệt đối KHÔNG đấu thẳng chân còi 5V vào GPIO của ESP32 vì chân GPIO ESP32 chỉ chịu dòng tối đa ~12mA, trong khi còi tiêu thụ từ 30mA - 60mA.
+
+```
+       +5V (Nguồn ngoài hoặc chân 5V/VIN ESP32)
+        │
+        ├──[ + ] Còi (Buzzer)
+        │    [ - ]
+        │      │
+        │      ├───|<──── (Diode 1N4148 mắc ngược bảo vệ cực C)
+        │      │
+        │     C (Collector)
+ESP32   │   ┌───┐
+GPIO 25 ├───┤ B │ Transistor NPN (S8050 / 2N2222)
+(hoặc 19)   └───┘
+ [ 1kΩ ]      E (Emitter)
+               │
+              GND (Nối chung GND ESP32 và nguồn 5V)
+```

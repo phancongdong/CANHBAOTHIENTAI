@@ -4,70 +4,65 @@
 #include <cstdint>
 #include <string>
 
-enum class AlarmState {
-    NORMAL,
-    SUSPECT,
-    ALARM,
-    SENSOR_FAULT
+// Mức chu kỳ Còi & LED theo sơ đồ
+enum class CadenceMode {
+    OFF,        // Còi: OFF, LED: OFF ("An Toàn")
+    CADENCE_1HZ,// Còi: ON (1Hz), LED: ON (1Hz) - Cảnh báo mức TB / Sớm
+    CADENCE_10HZ// Còi: ON (10Hz), LED: ON (10Hz) - Cảnh báo khẩn cấp (Cháy, Động Đất, Nhiệt Cao)
 };
 
-enum class AlarmTransition {
-    NONE,
-    ALARM_STARTED,
-    ALARM_CLEARED,
-    SENSOR_FAULT_STARTED,
-    SENSOR_FAULT_CLEARED
+// Phân mức từng cảm biến theo sơ đồ
+enum class VibrationLevel {
+    SAFE,       // RD < 0.2g ("An Toàn")
+    LIGHT,      // 0.2g <= RD <= 0.5g ("Rung nhẹ")
+    EARTHQUAKE  // RD > 0.5g ("Động Đất")
+};
+
+enum class FlameLevel {
+    SAFE,       // NL > 3200 ("An Toàn")
+    EARLY_WARN, // 1600 <= NL <= 3200 ("Cảnh báo sớm")
+    FIRE_ALARM  // NL < 1600 ("Cảnh báo cháy")
+};
+
+enum class TempLevel {
+    SAFE,       // ND < 38°C ("An Toàn")
+    MEDIUM,     // 38°C <= ND <= 45°C ("Nhiệt độ TB")
+    HIGH        // ND > 45°C ("Nhiệt độ cao")
 };
 
 struct SensorReading {
-    bool flame_valid = true;
-    bool flame_detected = false;
-    bool temperature_valid = true;
-    float temperature_c = 25.0f;
-    bool hardware_fault = false;
+    float vibration_g = 0.0f;     // Gia tốc/rung động RĐ (g)
+    int flame_raw = 4095;         // Ngọn lửa NL (ADC: 0-4095)
+    float temperature_c = 25.0f;  // Nhiệt độ NĐ (°C)
+    bool connection_ok = true;    // Kiểm tra kết nối cảm biến
 };
 
-struct AlarmConfig {
-    float temp_warn_c = 45.0f;
-    float temp_alarm_c = 55.0f;
-    float temp_clear_c = 38.0f;
-    uint32_t confirm_ms = 1000;
-    uint32_t clear_ms = 10000;
-    uint32_t sensor_fault_ms = 3000;
+struct DisasterEvaluation {
+    bool connection_ok = true;
+    VibrationLevel vib_level = VibrationLevel::SAFE;
+    FlameLevel flame_level = FlameLevel::SAFE;
+    TempLevel temp_level = TempLevel::SAFE;
+
+    CadenceMode cadence = CadenceMode::OFF;
+    std::string lcd_line1; // Dòng 1 LCD: "An Toan", "Dong Dat", "Canh bao chay", v.v.
+    std::string lcd_line2; // Dòng 2 LCD: Chi tiết thông số (RD, NL, ND)
+    std::string alert_event; // Tên sự kiện: "heartbeat", "earthquake", "fire", "temp_high", v.v.
+    bool is_emergency = false; // Mức 10Hz
+    bool is_warning = false;   // Mức 1Hz
 };
 
-class AlarmLogic {
+class DisasterAlarmLogic {
 public:
-    explicit AlarmLogic(const AlarmConfig& config);
+    DisasterAlarmLogic() = default;
 
-    AlarmTransition update(const SensorReading& reading, uint32_t now_ms);
-    AlarmState state() const { return m_state; }
-    bool latched() const { return m_latched; }
-    uint32_t incidentId() const { return m_incident_id; }
+    // Đánh giá trạng thái theo đúng sơ đồ
+    DisasterEvaluation evaluate(const SensorReading& reading);
 
-    void acknowledgeLocalClear(uint32_t now_ms);
-    void restoreLatchedState(bool latched, uint32_t incident_id);
-
-    static const char* stateToString(AlarmState s);
-    static const char* transitionToString(AlarmTransition t);
+    // Xác định chuyển trạng thái cảnh báo để gửi Telegram/Server
+    bool hasStatusChanged(const DisasterEvaluation& current, std::string& out_event);
 
 private:
-    AlarmConfig m_config;
-    AlarmState m_state = AlarmState::NORMAL;
-    bool m_latched = false;
-    uint32_t m_incident_id = 0;
-
-    // Timing tracking
-    bool m_suspect_active = false;
-    uint32_t m_suspect_start_ms = 0;
-
-    bool m_fault_active = false;
-    uint32_t m_fault_start_ms = 0;
-
-    uint32_t m_clear_condition_start_ms = 0;
-    bool m_in_clear_window = false;
-
-    bool m_manual_ack_requested = false;
+    std::string m_last_event = "safe";
 };
 
 #endif // ALARM_LOGIC_H

@@ -15,7 +15,7 @@ def format_telegram_message(
             f"⚠️ <b>[CẢNH BÁO MẤT KẾT NỐI]</b>\n"
             f"📍 <b>Thiết bị:</b> <code>{event.device_id}</code>\n"
             f"⏱ <b>Thời điểm ghi nhận:</b> {timestamp_str}\n"
-            f"ℹ️ Thiết bị không gửi nhịp tim trong hơn 60 giây. Hãy kiểm tra nguồn điện và Wi-Fi."
+            f"ℹ️ Thiết bị không gửi tín hiệu trong hơn 60 giây. Hãy kiểm tra nguồn điện và Wi-Fi."
         )
 
     if is_offline is False:
@@ -26,46 +26,89 @@ def format_telegram_message(
             f"ℹ️ Thiết bị đã kết nối lại và gửi tín hiệu bình thường."
         )
 
-    temp_str = f"{event.temperature_c:.1f} °C" if event.temperature_c is not None else "Không xác định (Lỗi)"
-    flame_str = "CÓ PHÁT HIỆN LỬA 🔥" if event.flame_detected else "Không có ngọn lửa"
+    vib_str = f"{event.vibration_g:.2f}g" if event.vibration_g is not None else "N/A"
+    flame_str = f"{event.flame_raw}" if event.flame_raw is not None else "N/A"
+    temp_str = f"{event.temperature_c:.1f} °C" if event.temperature_c is not None else "N/A"
 
-    if event.event == "alarm_started":
-        prefix = "🚨 <b>[NHẮC NHỞ] ĐÁM CHÁY CHƯA DẬP TẮT</b>" if reminder else "🔥🚨 <b>[BÁO CHÁY KHẨN CẤP]</b>"
+    inc_info = f"🆔 <b>Mã sự cố:</b> <code>{event.incident_id}</code>\n" if event.incident_id else ""
+
+    details = (
+        f"{inc_info}"
+        f"📊 <b>Thông số cảm biến:</b>\n"
+        f"  • Rung động (RĐ): <code>{vib_str}</code>\n"
+        f"  • Ngọn lửa (NL): <code>{flame_str}</code>\n"
+        f"  • Nhiệt độ (NĐ): <code>{temp_str}</code>\n"
+        f"📺 <b>Hiển thị LCD:</b> <code>{event.lcd_message or 'N/A'}</code>\n"
+        f"⏱ <b>Thời gian máy chủ:</b> {timestamp_str}"
+    )
+
+    ev_name = event.event
+    if ev_name == "earthquake":
+        return (
+            f"🚨🚨 <b>[CẢNH BÁO ĐỘNG ĐẤT NGUY HIỂM]</b>\n"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"📢 <b>Còi & LED:</b> BẬT 10Hz (Khẩn cấp)\n"
+            f"⚠️ <b>Phát hiện:</b> Rung động > 0.5g ({vib_str})!\n"
+            f"{details}\n"
+            f"⚠️ <i>Hãy tìm nơi trú ẩn an toàn ngay lập tức!</i>"
+        )
+    elif ev_name in ("fire_alarm", "alarm_started"):
+        prefix = "🚨 <b>[NHẮC NHỞ] ĐÁM CHÁY CHƯA DẬP TẮT</b>" if reminder else "🔥🚨 <b>[CẢNH BÁO CHÁY KHẨN CẤP]</b>"
         return (
             f"{prefix}\n"
-            f"📍 <b>Khu vực / Thiết bị:</b> <code>{event.device_id}</code>\n"
-            f"🆔 <b>Mã sự cố:</b> <code>{event.incident_id or 'N/A'}</code>\n"
-            f"🌡 <b>Nhiệt độ:</b> {temp_str}\n"
-            f"🔥 <b>Cảm biến lửa:</b> {flame_str}\n"
-            f"📢 <b>Còi tại chỗ:</b> ĐANG HÚ BÁO ĐỘNG\n"
-            f"⏱ <b>Thời gian máy chủ:</b> {timestamp_str}\n"
-            f"⚠️ <i>Hãy sơ tán và xử lý chữa cháy ngay lập tức!</i>"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"📢 <b>Còi & LED:</b> BẬT 10Hz (Khẩn cấp)\n"
+            f"🔥 <b>Phát hiện:</b> Cảm biến lửa < 1600 ({flame_str})!\n"
+            f"{details}\n"
+            f"⚠️ <i>Hãy sơ tán và xử lý chữa cháy khẩn cấp!</i>"
         )
-    elif event.event == "alarm_cleared":
+    elif ev_name == "temp_high":
         return (
-            f"✅ <b>[BÁO ĐỘNG ĐÃ ĐƯỢC XÓA AN TOÀN]</b>\n"
-            f"📍 <b>Khu vực / Thiết bị:</b> <code>{event.device_id}</code>\n"
-            f"🆔 <b>Mã sự cố:</b> <code>{event.incident_id or 'N/A'}</code>\n"
-            f"🌡 <b>Nhiệt độ hiện tại:</b> {temp_str}\n"
-            f"🔥 <b>Cảm biến lửa:</b> {flame_str}\n"
-            f"⏱ <b>Thời gian ghi nhận:</b> {timestamp_str}\n"
-            f"ℹ️ Nhiệt độ đã về mức an toàn và đám cháy đã được dập tắt."
+            f"🌡🚨 <b>[CẢNH BÁO NHIỆT ĐỘ QUÁ CAO]</b>\n"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"📢 <b>Còi & LED:</b> BẬT 10Hz (Khẩn cấp)\n"
+            f"🌡 <b>Phát hiện:</b> Nhiệt độ > 45°C ({temp_str})!\n"
+            f"{details}"
         )
-    elif event.event == "sensor_fault":
+    elif ev_name == "vibration_light":
         return (
-            f"⚠️ <b>[CẢNH BÁO LỖI PHẦN CỨNG CẢM BIẾN]</b>\n"
-            f"📍 <b>Khu vực / Thiết bị:</b> <code>{event.device_id}</code>\n"
-            f"⚠️ <b>Tình trạng:</b> Mất kết nối cảm biến nhiệt độ hoặc cảm biến lửa.\n"
-            f"⏱ <b>Thời gian ghi nhận:</b> {timestamp_str}\n"
-            f"ℹ️ Cần cử người kiểm tra dây dẫn hoặc linh kiện tại hiện trường."
+            f"⚠️ <b>[CẢNH BÁO RUNG NHẸ]</b>\n"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"📢 <b>Còi & LED:</b> BẬT 1Hz (Cảnh báo)\n"
+            f"ℹ️ <b>Phát hiện:</b> 0.2g <= RĐ <= 0.5g ({vib_str})\n"
+            f"{details}"
         )
-    elif event.event == "sensor_recovered":
+    elif ev_name == "flame_early":
         return (
-            f"🟢 <b>[CẢM BIẾN ĐÃ PHỤC HỒI]</b>\n"
-            f"📍 <b>Khu vực / Thiết bị:</b> <code>{event.device_id}</code>\n"
-            f"🌡 <b>Nhiệt độ:</b> {temp_str}\n"
-            f"⏱ <b>Thời gian ghi nhận:</b> {timestamp_str}\n"
-            f"ℹ️ Toàn bộ cảm biến đã hoạt động ổn định trở lại."
+            f"⚠️ <b>[CẢNH BÁO SỚM NGỌN LỬA]</b>\n"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"📢 <b>Còi & LED:</b> BẬT 1Hz (Cảnh báo sớm)\n"
+            f"ℹ️ <b>Phát hiện:</b> 1600 <= NL <= 3200 ({flame_str})\n"
+            f"{details}"
+        )
+    elif ev_name == "temp_medium":
+        return (
+            f"⚠️ <b>[CẢNH BÁO NHIỆT ĐỘ TRUNG BÌNH]</b>\n"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"📢 <b>Còi & LED:</b> BẬT 1Hz (Cảnh báo)\n"
+            f"ℹ️ <b>Phát hiện:</b> 38°C <= NĐ <= 45°C ({temp_str})\n"
+            f"{details}"
+        )
+    elif ev_name in ("safe", "alarm_cleared"):
+        return (
+            f"✅ <b>[BÁO ĐỘNG ĐÃ ĐƯỢC XÓA AN TOÀN - HỆ THỐNG AN TOÀN]</b>\n"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"🔇 <b>Còi & LED:</b> ĐÃ TẮT (OFF)\n"
+            f"{details}\n"
+            f"ℹ️ Toàn bộ các chỉ số đã trở lại mức bình thường an toàn."
+        )
+    elif ev_name == "sensor_fault":
+        return (
+            f"⚠️ <b>[CẢNH BÁO LỖI KẾT NỐI CẢM BIẾN]</b>\n"
+            f"📍 <b>Khu vực:</b> <code>{event.device_id}</code>\n"
+            f"📺 <b>Hiển thị LCD:</b> <code>Thông Báo Lỗi</code>\n"
+            f"⏱ <b>Thời điểm ghi nhận:</b> {timestamp_str}\n"
+            f"ℹ️ Mất kết nối cảm biến gia tốc, ngọn lửa hoặc nhiệt độ. Cần kiểm tra dây nối."
         )
     else:
-        return f"ℹ️ Thiết bị <code>{event.device_id}</code> gửi sự kiện: {event.event} ({timestamp_str})"
+        return f"ℹ️ Thiết bị <code>{event.device_id}</code> cập nhật trạng thái: {ev_name} ({timestamp_str})"

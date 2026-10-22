@@ -41,7 +41,7 @@
 #define ENABLE_TELEGRAM           1
 
 // TÀI KHOẢN WI-FI (BẮT BUỘC ĐỔI THÀNH WI-FI NHÀ BẠN - BĂNG TẦN 2.4GHz):
-const char* WIFI_SSID             = "Adudulubu";  // ĐỔI thành tên Wi-Fi nhà bạn
+const char* WIFI_SSID             = "A";  // ĐỔI thành tên Wi-Fi nhà bạn
 const char* WIFI_PASSWORD         = "chodehuy";   // ĐỔI thành mật khẩu Wi-Fi nhà bạn
 
 // THÔNG TIN BOT TELEGRAM TRỰC TIẾP (BẢN TIN ĐI THẲNG TỪ ESP32 VÀO TELEGRAM):
@@ -58,7 +58,7 @@ const char* DEVICE_ID             = "kitchen-01";
 // ======================================================================================
 // A. Rung động (RĐ - đơn vị: g):
 const float RD_SAFE_MAX   = 0.20; // RĐ < 0.2g: An toàn
-const float RD_WARN_MAX   = 0.50; // 0.2g <= RĐ <= 0.5g: Rung nhẹ | RĐ > 0.5g: Động đất
+const float RD_WARN_MAX   = 0.80; // 0.2g <= RĐ <= 0.5g: Rung nhẹ | RĐ > 0.5g: Động đất
 
 // B. Nhiệt độ (NĐ - đơn vị: độ C):
 const float ND_SAFE_MAX   = 38.0; // NĐ < 38°C: An toàn

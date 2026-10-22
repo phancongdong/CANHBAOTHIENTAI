@@ -9,15 +9,7 @@
 #include "drivers.h"
 
 static Preferences prefs;
-static AlarmLogic alarmLogic(AlarmConfig{
-    TEMP_WARN_C,
-    TEMP_ALARM_C,
-    TEMP_CLEAR_C,
-    CONFIRM_MS,
-    CLEAR_MS,
-    SENSOR_FAULT_MS
-});
-
+static DisasterAlarmLogic alarmLogic;
 static EventQueue eventQueue(50);
 static DeviceSnapshot snapshot;
 
@@ -26,19 +18,17 @@ static uint32_t last_heartbeat_ms = 0;
 static uint32_t last_transport_attempt_ms = 0;
 static uint32_t transport_backoff_ms = 1000;
 
-static const uint32_t SENSOR_INTERVAL_MS = 100;
-static const uint32_t HEARTBEAT_INTERVAL = HEARTBEAT_INTERVAL_MS;
-
-static int last_button_state = HIGH;
-static uint32_t last_debounce_time = 0;
+static CadenceMode current_cadence = CadenceMode::OFF;
 
 void setup() {
     Serial.begin(115200);
     delay(500);
-    Serial.println("\n[SYSTEM] ESP32 Fire Alarm System Starting...");
+    Serial.println("\n=============================================");
+    Serial.println("  HE THONG CANH BAO THIEN TAI & BAO CHAY ESP32");
+    Serial.println("=============================================");
 
-    // Initialize Preferences in NVS
-    prefs.begin("fire_alarm", false);
+    // 1. Khoi tao NVS de luu boot_id
+    prefs.begin("disaster_sys", false);
     uint32_t boot_count = prefs.getUInt("boot_count", 0) + 1;
     prefs.putUInt("boot_count", boot_count);
 
@@ -48,125 +38,100 @@ void setup() {
     snapshot.boot_id = boot_buf;
     snapshot.seq = 0;
 
-    // Restore latched state if previously in ALARM
-    bool saved_latched = prefs.getBool("latched", false);
-    uint32_t saved_incident = prefs.getUInt("incident_id", 0);
-    if (saved_latched) {
-        Serial.printf("[SYSTEM] Restoring latched ALARM state (Incident: %u)\n", saved_incident);
-        alarmLogic.restoreLatchedState(true, saved_incident);
-        snapshot.latched = true;
-        snapshot.incident_id = saved_incident;
-        snapshot.current_state = AlarmState::ALARM;
-    }
+    // 2. Khoi tao thiet bi dau ra (LCD, Coi, LED)
+    initLcd(LCD_I2C_ADDR, PIN_I2C_SDA, PIN_I2C_SCL);
+    initAlertOutputs(PIN_BUZZER, PIN_LED);
+    testBuzzer(2, 100, 80); // Test tieng bip coi khoi dong
 
-    // Initialize Drivers
-    initSensors(PIN_FLAME_DO, PIN_ONEWIRE_TEMP);
-    initBuzzer(PIN_BUZZER);
-    pinMode(PIN_RESET_BUTTON, INPUT_PULLUP);
+    // 3. Khoi tao cac cam bien (Gia toc MPU6050, Lua Analog, Nhiet DS18B20)
+    initSensors(PIN_FLAME_AO, PIN_TEMP_DS18B20, PIN_I2C_SDA, PIN_I2C_SCL);
 
-    initTransport(SERVER_HOST, SERVER_PORT, ROOT_CA_CERT, DEVICE_BEARER_TOKEN);
+    // 4. Khoi tao Transport ket noi VPS
+    initTransport(SERVER_HOST, SERVER_PORT, DEVICE_BEARER_TOKEN);
 
-    // Connect to Wi-Fi non-blocking or simple connect
+    // 5. Ket noi Wi-Fi
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.printf("[WIFI] Connecting to SSID: %s\n", WIFI_SSID);
+    Serial.printf("[WIFI] Dang ket noi toi: %s\n", WIFI_SSID);
+
+    updateLcd("He Thong San Sang", "Khoi Dong Xong!");
+    delay(1000);
 }
 
 void loop() {
     uint32_t now = millis();
     snapshot.uptime_ms = now;
 
-    // 1. Reset Button Debounce
-    int reading = digitalRead(PIN_RESET_BUTTON);
-    if (reading != last_button_state) {
-        last_debounce_time = now;
-    }
-    if ((now - last_debounce_time) > 50) {
-        if (reading == LOW && last_button_state == HIGH) {
-            Serial.println("[BUTTON] Local Clear Button Pressed.");
-            alarmLogic.acknowledgeLocalClear(now);
-        }
-    }
-    last_button_state = reading;
-
-    // 2. Sensor Read & State Machine Update (Every 100ms)
-    if (now - last_sensor_read_ms >= SENSOR_INTERVAL_MS) {
+    // 1. Doc cam bien va danh gia trang thai dinh ky (100ms)
+    if (now - last_sensor_read_ms >= SENSOR_READ_INTERVAL_MS) {
         last_sensor_read_ms = now;
-        SensorReading sr = readSensors();
-        AlarmTransition trans = alarmLogic.update(sr, now);
 
-        snapshot.current_state = alarmLogic.state();
-        snapshot.latched = alarmLogic.latched();
-        snapshot.incident_id = alarmLogic.incidentId();
+        SensorReading reading = readSensors();
+        DisasterEvaluation eval = alarmLogic.evaluate(reading);
 
-        // Update buzzer cadence based on state (Runs locally even if network is dead)
-        updateBuzzer(now, snapshot.current_state);
+        // Cap nhat che do Coi & LED
+        current_cadence = eval.cadence;
 
-        // Save latched state to NVS on state change
-        if (trans == AlarmTransition::ALARM_STARTED) {
-            Serial.printf("[ALARM] *** FIRE ALARM TRIGGERED (Incident: %u) ***\n", snapshot.incident_id);
-            prefs.putBool("latched", true);
-            prefs.putUInt("incident_id", snapshot.incident_id);
+        // Cap nhat man hinh LCD theo so do
+        updateLcd(eval.lcd_line1, eval.lcd_line2);
 
-            snapshot.seq++;
-            TelemetryEvent ev = makeEvent(snapshot, sr, trans, 0);
-            eventQueue.push(ev);
-        } else if (trans == AlarmTransition::ALARM_CLEARED) {
-            Serial.println("[ALARM] Alarm cleared safely.");
-            prefs.putBool("latched", false);
+        // Kiem tra chuyen trang thai de gui canh bao ve VPS & Telegram
+        std::string changed_event;
+        if (alarmLogic.hasStatusChanged(eval, changed_event)) {
+            Serial.printf("[EVENT] Trang thai moi: %s (LCD: %s)\n",
+                          changed_event.c_str(), eval.lcd_line1.c_str());
 
             snapshot.seq++;
-            TelemetryEvent ev = makeEvent(snapshot, sr, trans, 0);
-            eventQueue.push(ev);
-        } else if (trans == AlarmTransition::SENSOR_FAULT_STARTED || trans == AlarmTransition::SENSOR_FAULT_CLEARED) {
-            Serial.printf("[FAULT] Sensor Transition: %s\n", AlarmLogic::transitionToString(trans));
-            snapshot.seq++;
-            TelemetryEvent ev = makeEvent(snapshot, sr, trans, 0);
+            snapshot.alert_event = changed_event;
+            snapshot.lcd_line1 = eval.lcd_line1;
+            snapshot.is_emergency = eval.is_emergency;
+
+            TelemetryEvent ev = makeEvent(snapshot, reading, eval, 0);
             eventQueue.push(ev);
         }
-    } else {
-        // Continuously update buzzer between sensor reads for accurate pitch/cadence
-        updateBuzzer(now, snapshot.current_state);
     }
 
-    // 3. Heartbeat Generator (Every 30s)
-    if (now - last_heartbeat_ms >= HEARTBEAT_INTERVAL) {
+    // 2. Dieu khien chu ky nhap nhay Coi & LED lien tuc theo thoi gian thuc
+    updateAlertOutputs(now, current_cadence);
+
+    // 3. Gui nhip tim dinh ky ve VPS (30 giay) khi khong co su co
+    if (now - last_heartbeat_ms >= HEARTBEAT_INTERVAL_MS) {
         last_heartbeat_ms = now;
-        SensorReading sr = readSensors();
+
+        SensorReading reading = readSensors();
+        DisasterEvaluation eval = alarmLogic.evaluate(reading);
+
         snapshot.seq++;
-        TelemetryEvent hb = makeEvent(snapshot, sr, AlarmTransition::NONE, 0);
+        snapshot.alert_event = "heartbeat";
+        snapshot.lcd_line1 = eval.lcd_line1;
+        snapshot.is_emergency = eval.is_emergency;
+
+        TelemetryEvent hb = makeEvent(snapshot, reading, eval, 0);
         eventQueue.push(hb);
     }
 
-    // 4. Queue Dispatcher (Non-blocking transport)
+    // 4. Gui cac ban tin trong hang doi len VPS qua HTTP
     if (!eventQueue.empty() && (now - last_transport_attempt_ms >= transport_backoff_ms)) {
         last_transport_attempt_ms = now;
         TelemetryEvent frontEvent;
         if (eventQueue.peek(frontEvent)) {
             TransportResult res = postEvent(frontEvent);
             if (res == TransportResult::SENT || res == TransportResult::DUPLICATE_ACK) {
-                // Successfully transmitted or duplicate recognized by server
                 eventQueue.removeFront();
-                transport_backoff_ms = 500; // Reset backoff
+                transport_backoff_ms = 500;
             } else if (res == TransportResult::PERMANENT_FAILURE) {
-                // Drop permanently failing event to unblock queue
-                Serial.printf("[TRANSPORT] Permanent failure for event seq %u. Dropping.\n", frontEvent.seq);
+                Serial.printf("[TRANSPORT] Permanent failure seq %u. Bo qua.\n", frontEvent.seq);
                 eventQueue.removeFront();
                 transport_backoff_ms = 1000;
             } else {
-                // RETRYABLE_FAILURE: Exponential backoff with ceiling (max 30s)
-                transport_backoff_ms = (transport_backoff_ms * 2);
-                if (transport_backoff_ms > 30000) {
-                    transport_backoff_ms = 30000;
-                }
-                Serial.printf("[TRANSPORT] Retryable failure. Backing off for %u ms.\n", transport_backoff_ms);
+                transport_backoff_ms = std::min(transport_backoff_ms * 2, 30000u);
+                Serial.printf("[TRANSPORT] Thu lai sau %u ms...\n", transport_backoff_ms);
             }
         }
     }
 }
 
 #else
-// Native entry point if compiled as firmware main
 int main() {
     return 0;
 }
