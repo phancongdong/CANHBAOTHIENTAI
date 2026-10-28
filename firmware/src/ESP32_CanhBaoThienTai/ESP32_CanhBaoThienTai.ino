@@ -6,18 +6,18 @@
 #include <WiFiClientSecure.h>
 
 // ======================================================================================
-// 1. CẤU HÌNH CHÂN PHẦN CỨNG (KHỚP HOÀN TOÀN THEO MẠCH CỦA BẠN)
+// 1. CẤU HÌNH CHÂN PHẦN CỨNG
 // ======================================================================================
-#define PIN_I2C_SDA         21  // SDA (Dùng chung cho MPU6050/ADXL345 và LCD 1602)
-#define PIN_I2C_SCL         22  // SCL (Dùng chung cho MPU6050/ADXL345 và LCD 1602)
-#define PIN_DHT             4   // Data cảm biến nhiệt độ DHT11
-#define PIN_FLAME_ANALOG    34  // Analog (AO) cảm biến ngọn lửa (ADC1_CH6)
-#define PIN_BUTTON_TEST     15  // Nút nhấn Test / Reset (Active LOW)
+#define PIN_I2C_SDA         21  // SDA (MPU6050 / ADXL345 & LCD 1602)
+#define PIN_I2C_SCL         22  // SCL (MPU6050 / ADXL345 & LCD 1602)
+#define PIN_DHT             4   // Cảm biến nhiệt độ DHT11
+#define PIN_FLAME_ANALOG    34  // Cảm biến ngọn lửa Analog AO
+#define PIN_BUTTON_TEST     15  // Nút nhấn Test (Active LOW)
 #define PIN_BUZZER          25  // Còi báo động (GPIO 25)
 #define PIN_LED_ALERT       26  // Đèn LED cảnh báo (GPIO 26)
 
 // ======================================================================================
-// 2. CẤU HÌNH CÒI BÁO ĐỘNG
+// 2. CẤU HÌNH CÒI
 // ======================================================================================
 #define BUZZER_ACTIVE_LEVEL HIGH // HIGH: Kích mức cao | LOW: Kích mức thấp
 #define BUZZER_IS_PASSIVE   0    // 0: Còi chủ động (Active) | 1: Còi thụ động (Passive)
@@ -30,8 +30,8 @@
 // ======================================================================================
 #define ENABLE_TELEGRAM           1
 
-// Tên và Mật khẩu Wi-Fi (Băng tần 2.4GHz):
-const char* WIFI_SSID             = "Adudulubu";  // Wi-Fi của bạn
+// Tên & Mật khẩu Wi-Fi (Băng tần 2.4GHz):
+const char* WIFI_SSID             = "A";  // Tên Wi-Fi của bạn
 const char* WIFI_PASSWORD         = "chodehuy";   // Mật khẩu Wi-Fi của bạn
 
 // Thông tin Bot Telegram:
@@ -44,17 +44,17 @@ const char* DEVICE_TOKEN          = "secret-token-kitchen-01";
 const char* DEVICE_ID             = "kitchen-01";
 
 // ======================================================================================
-// 4. CÁC NGƯỠNG SO SÁNH THEO ĐÚNG LƯU ĐỒ KHỐI
+// 4. CÁC NGƯỠNG SO SÁNH THEO ĐÚNG LƯU ĐỒ
 // ======================================================================================
 // A. Rung động (RĐ - đơn vị: g):
 const float RD_SAFE_MAX   = 0.20; // RĐ < 0.2g: An toàn
-const float RD_WARN_MAX   = 0.50; // 0.2g <= RĐ <= 0.5g: Rung nhẹ | RĐ > 0.5g: ĐỘNG ĐẤT
+const float RD_WARN_MAX   = 0.70; // 0.2g - 0.5g: Rung nhẹ | RĐ > 0.5g: ĐỘNG ĐẤT NGUY HIỂM
 
 // B. Nhiệt độ (NĐ - đơn vị: độ C):
 const float ND_SAFE_MAX   = 38.0; // NĐ < 38°C: An toàn
-const float ND_WARN_MAX   = 45.0; // 38°C <= NĐ <= 45°C: Nhiệt độ TB | NĐ > 45°C: Nhiệt độ cao
+const float ND_WARN_MAX   = 45.0; // 38°C - 45°C: Cảnh báo sớm | NĐ > 45°C: Nhiệt độ cao
 
-// C. Ngọn lửa (NL - Analog ADC 0-4095 - Chế độ Siêu Nhạy):
+// C. Ngọn lửa (NL - Analog ADC):
 const int NL_FIRE_MAX     = 2800; // ADC < 2800: BÁO CHÁY NGAY (còi 10Hz)
 const int NL_WARN_MAX     = 3600; // 2800 <= ADC <= 3600: Cảnh báo sớm (còi 1Hz)
 
@@ -64,12 +64,12 @@ const int NL_WARN_MAX     = 3600; // 2800 <= ADC <= 3600: Cảnh báo sớm (cò
 DHT dht(PIN_DHT, DHTTYPE);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-float val_RD = 0.0;     // Độ rung chấn (g)
-float val_ND = 25.0;    // Nhiệt độ (°C)
-float val_DA = 60.0;    // Độ ẩm (%)
-int   val_NL = 4095;    // Cảm biến lửa (ADC)
+float val_RD = 0.0;
+float val_ND = 25.0;
+float val_DA = 60.0;
+int   val_NL = 4095;
 
-int level_RD = 0;       // 0: An toàn, 1: Rung nhẹ (1Hz), 2: Động đất (10Hz)
+int level_RD = 0;
 int level_ND = 0;
 int level_NL = 0;
 int system_max_level = 0;
@@ -78,12 +78,10 @@ int prev_system_level = 0;
 bool is_mpu6050 = false;
 bool is_adxl345 = false;
 bool sensor_offline = false;
-bool prev_sensor_offline = false;
 
 unsigned long timer_sample    = 0;
 unsigned long timer_dht       = 0;
 unsigned long timer_blink     = 0;
-unsigned long timer_heartbeat = 0;
 unsigned long timer_wifi_check= 0;
 bool toggle_state = false;
 
@@ -93,8 +91,6 @@ uint32_t packet_seq = 0;
 // ======================================================================================
 // 6. CƠ CHẾ ĐA NHÂN (DUAL CORE FREERTOS) - BÁO ĐỘNG NGAY 0ms KHÔNG CHỜ TELEGRAM!
 // ======================================================================================
-// Core 1: Chuyên đọc cảm biến + BẬT CÒI/ĐÈN/LCD NGAY LẬP TỨC TRONG 0 MILIGIÂY.
-// Core 0: Chạy tác vụ ngầm gửi tin nhắn đến Telegram và VPS (không làm đơ/giật còi).
 volatile bool alert_pending = false;
 String pending_tele_msg = "";
 String pending_event_name = "";
@@ -102,7 +98,7 @@ String pending_lcd_msg = "";
 portMUX_TYPE alertMux = portMUX_INITIALIZER_UNLOCKED;
 
 // ======================================================================================
-// 7. ĐIỀU KHIỂN CÒI & ĐÈN (BUZZER & LED DRIVER)
+// 7. ĐIỀU KHIỂN CÒI & ĐÈN
 // ======================================================================================
 void setBuzzer(bool enable) {
   if (enable) {
@@ -132,7 +128,7 @@ void beepBuzzer(int count, int on_ms, int off_ms) {
 }
 
 // ======================================================================================
-// 8. ĐỌC CẢM BIẾN LỬA VÀ GIA TỐC (MPU6050 / ADXL345)
+// 8. ĐỌC CẢM BIẾN LỬA & GIA TỐC
 // ======================================================================================
 int readFlameFiltered() {
   long sum = 0;
@@ -144,34 +140,30 @@ int readFlameFiltered() {
 }
 
 bool initAccelerometer() {
-  // Thử MPU-6050 (0x68)
   Wire.beginTransmission(0x68);
   if (Wire.endTransmission() == 0) {
     Wire.beginTransmission(0x68);
-    Wire.write(0x6B); // PWR_MGMT_1
-    Wire.write(0x00); // Wake up
+    Wire.write(0x6B);
+    Wire.write(0x00);
     Wire.endTransmission();
     is_mpu6050 = true;
     Serial.println(F("[SENSOR] Da ket noi MPU-6050 (GY-521)!"));
     return true;
   }
 
-  // Thử ADXL-345 (0x53)
   Wire.beginTransmission(0x53);
   if (Wire.endTransmission() == 0) {
     Wire.beginTransmission(0x53);
-    Wire.write(0x2D); // POWER_CTL
-    Wire.write(0x08); // Measure
+    Wire.write(0x2D);
+    Wire.write(0x08);
     Wire.endTransmission();
     is_adxl345 = true;
     Serial.println(F("[SENSOR] Da ket noi ADXL-345!"));
     return true;
   }
-
   return false;
 }
 
-// Kiểm tra nhanh kết nối I2C cảm biến (Tránh treo hệ thống)
 bool isAccelOnline() {
   if (is_mpu6050) {
     Wire.beginTransmission(0x68);
@@ -217,7 +209,7 @@ float readVibrationG() {
 }
 
 // ======================================================================================
-// 9. CÁC HÀM GỬI MẠNG (CHẠY NGẦM TRÊN CORE 0 - KHÔNG ẢNH HƯỞNG CÒI BÁO ĐỘNG)
+// 9. CÁC HÀM GỬI MẠNG (CHẠY NGẦM TRÊN CORE 0)
 // ======================================================================================
 String escapeJson(const String& input) {
   String out = "";
@@ -237,14 +229,11 @@ void sendDirectToTelegram(const String& message) {
 #if !ENABLE_TELEGRAM
   return;
 #endif
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println(F("[TELEGRAM] Wi-Fi chua ket noi, bo qua dot gui nay."));
-    return;
-  }
+  if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
   client.setInsecure();
-  client.setTimeout(3500); // 3.5s timeout tránh giữ kết nối lâu
+  client.setTimeout(3500);
 
   HTTPClient https;
   String url = "https://api.telegram.org/bot" + String(TELEGRAM_BOT_TOKEN) + "/sendMessage";
@@ -258,12 +247,7 @@ void sendDirectToTelegram(const String& message) {
     jsonPayload += "\"parse_mode\":\"HTML\"";
     jsonPayload += "}";
 
-    int httpCode = https.POST(jsonPayload);
-    if (httpCode == 200 || httpCode == 201) {
-      Serial.printf("[TELEGRAM CORE-0] Gui thanh cong (HTTP %d).\n", httpCode);
-    } else {
-      Serial.printf("[TELEGRAM CORE-0] Gui that bai (HTTP %d).\n", httpCode);
-    }
+    https.POST(jsonPayload);
     https.end();
   }
 }
@@ -299,10 +283,7 @@ void sendTelemetryToVPS(const String& eventName, const String& lcdMsg) {
   payload += "\"lcd_message\":\"" + lcdMsg + "\"";
   payload += "}";
 
-  int code = http.POST(payload);
-  if (code == 200) {
-    Serial.printf("[VPS CORE-0] Luu telemetry '%s' thanh cong (200).\n", eventName.c_str());
-  }
+  http.POST(payload);
   http.end();
 }
 
@@ -321,7 +302,6 @@ void backgroundNetworkTask(void* pvParameters) {
       alert_pending = false;
       portEXIT_CRITICAL(&alertMux);
 
-      // Gửi độc lập trong Core 0 - Còi ở Core 1 vẫn hú dồn dập 10Hz không bao giờ bị đứng
       sendDirectToTelegram(msgToSend);
       sendTelemetryToVPS(evtToSend, lcdToSend);
     }
@@ -329,34 +309,27 @@ void backgroundNetworkTask(void* pvParameters) {
   }
 }
 
-// Kích hoạt phát cảnh báo (Còi kêu trước, gửi Telegram ngầm sau)
 void triggerAlert(const String& eventName, const String& lcdMsg, const String& teleMsg) {
   if (eventName == last_alert_event) return;
   last_alert_event = eventName;
 
-  Serial.printf("\n>>> [CANH BAO TUC THI] Event: %s | LCD: %s\n", eventName.c_str(), lcdMsg.c_str());
+  Serial.printf("\n>>> [CANH BAO TUC THI] Event: %s\n", eventName.c_str());
 
   portENTER_CRITICAL(&alertMux);
   pending_event_name = eventName;
   pending_lcd_msg    = lcdMsg;
   pending_tele_msg   = teleMsg;
-  alert_pending      = true; // Đánh thức Core 0 gửi Telegram
+  alert_pending      = true;
   portEXIT_CRITICAL(&alertMux);
 }
 
-// Kết nối Wi-Fi
 void connectWiFiAsync() {
   if (WiFi.status() == WL_CONNECTED) return;
-  Serial.print(F("\n[WIFI] Dang ket noi toi: "));
-  Serial.println(WIFI_SSID);
-
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-
   IPAddress dns1(8, 8, 8, 8);
   IPAddress dns2(1, 1, 1, 1);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, dns1, dns2);
-
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
@@ -375,39 +348,34 @@ void setup() {
   setBuzzer(false);
   digitalWrite(PIN_LED_ALERT, LOW);
 
-  // Bíp khởi động kiểm tra còi
   beepBuzzer(2, 80, 60);
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
-  // Khởi động LCD
   lcd.init();
   lcd.backlight();
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("CANH BAO THIEN TAI");
+  lcd.print("CANH BAO T.TAI  ");
   lcd.setCursor(0, 1);
-  lcd.print("KHOI DONG...");
+  lcd.print("KHOI DONG...    ");
 
-  // Khởi động cảm biến
   initAccelerometer();
   dht.begin();
 
-  // Khởi tạo tác vụ gửi mạng ngầm trên CORE 0 (Core 1 dành riêng cho còi & cảm biến)
+  // Khởi tạo tác vụ gửi mạng ngầm trên CORE 0
   xTaskCreatePinnedToCore(
       backgroundNetworkTask,
       "NetWorker",
-      10240,     // 10KB stack an toàn cho SSL Telegram
+      10240,
       NULL,
       1,
       NULL,
-      0          // CHẠY TRÊN CORE 0
+      0
   );
 
-  // Bắt đầu kết nối Wi-Fi
   connectWiFiAsync();
 
-  // Chờ tối đa 4 giây để có IP (nếu chưa có vẫn vào giám sát ngay lập tức)
   unsigned long startW = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - startW < 4000) {
     delay(200);
@@ -415,35 +383,29 @@ void setup() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(F("\n[WIFI] KET NOI THANH CONG! IP: "));
-    Serial.println(WiFi.localIP());
     triggerAlert("recovery", "He Thong San Sang",
                  "✅ <b>[HỆ THỐNG ĐÃ SẴN SÀNG]</b>\n"
                  "📍 <b>Thiết bị:</b> " + String(DEVICE_ID) + "\n"
-                 "📶 <b>IP:</b> " + WiFi.localIP().toString() + "\n"
-                 "⚡ Đã kích hoạt cơ chế báo động 0ms!");
-  } else {
-    Serial.println(F("\n[WIFI] Khoi dong offline. He thong van hoat dong coi tai cho!"));
+                 "⚡ Cơ chế báo động tức thì 0ms đã kích hoạt!");
   }
 
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("HE THONG SAN SANG");
+  lcd.print("HE THONG READY  ");
   lcd.setCursor(0, 1);
-  lcd.print("GIAM SAT 24/7... ");
+  lcd.print("GIAM SAT 24/7   ");
   delay(600);
   lcd.clear();
 }
 
 // ======================================================================================
-// 11. LOOP (CHẠY TRÊN CORE 1 - ĐẢM BẢO BÁO ĐỘNG TỨC THÌ 0 MILIGIÂY)
+// 11. LOOP (CHẠY TRÊN CORE 1 - BÁO ĐỘNG NGAY 0 MILIGIÂY)
 // ======================================================================================
 void loop() {
   unsigned long currentMillis = millis();
 
-  // 1. NÚT TEST PHẦN CỨNG (GPIO 15) - BÁO CÒI NGAY LẬP TỨC
+  // 1. NÚT TEST PHẦN CỨNG (GPIO 15)
   if (digitalRead(PIN_BUTTON_TEST) == LOW) {
-    Serial.println(F("[BUTTON] Nut Test -> Phat tieng coi ngay!"));
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("TEST COI & LED  ");
@@ -454,7 +416,7 @@ void loop() {
     triggerAlert("button_test", "Nhan Nut Test",
                  "🧪 <b>[KIỂM TRA HỆ THỐNG - NÚT TEST]</b>\n"
                  "📍 <b>Thiết bị:</b> " + String(DEVICE_ID) + "\n"
-                 "🔔 Còi & Đèn báo động tại chỗ phản hồi tức thì!");
+                 "🔔 Còi & Đèn báo động tại chỗ hoạt động tốt!");
     delay(200);
   }
 
@@ -541,7 +503,7 @@ void loop() {
     // [QUAN TRỌNG] BẬT BÁO ĐỘNG TỨC THÌ (ZERO DELAY) KHI VỪA PHÁT HIỆN
     // ====================================================================
     if (system_max_level == 2 && prev_system_level != 2) {
-      // Động đất hoặc cháy vừa xảy ra: Bật còi & đèn NGAY Ở MILIGIÂY ĐẦU TIÊN!
+      // Động đất hoặc cháy: Bật còi & đèn NGAY Ở MILIGIÂY ĐẦU TIÊN!
       setBuzzer(true);
       digitalWrite(PIN_LED_ALERT, HIGH);
       toggle_state = true;
@@ -549,30 +511,34 @@ void loop() {
     }
     prev_system_level = system_max_level;
 
-    // Xác định nội dung hiển thị và thông điệp
-    String lcdLine2 = "An Toan         ";
+    // --- HIỂN THỊ MÀN HÌNH LCD 1602 (CHUẨN 16 KÝ TỰ, ƯU TIÊN HIỂN THỊ CẢM BIẾN LỬA) ---
+    char line0[17];
+    char line1[17];
     String currentEvent = "safe";
     String teleMsg = "";
 
     if (system_max_level == 2) {
-      if (level_RD == 2) {
-        lcdLine2 = "! DONG DAT !    ";
-        currentEvent = "earthquake";
-        teleMsg = "🚨🚨 <b>[CẢNH BÁO ĐỘNG ĐẤT NGUY HIỂM]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "⚠️ <b>Rung chấn:</b> " + String(val_RD, 2) + "g (> 0.5g)!\n"
-                  "📢 <b>Còi & LED:</b> Đang hú 10Hz khẩn cấp tại chỗ!\n"
-                  "⚠️ <i>Hãy tìm nơi trú ẩn an toàn ngay lập tức!</i>";
-      } else if (level_NL == 2) {
-        lcdLine2 = "! CANH BAO CHAY!";
+      if (level_NL == 2) {
+        snprintf(line0, sizeof(line0), "LUA: %-4d [CHAY]", val_NL);
+        snprintf(line1, sizeof(line1), "!CANH BAO CHAY! ");
         currentEvent = "fire_alarm";
         teleMsg = "🔥🚨 <b>[CẢNH BÁO CHÁY KHẨN CẤP]</b>\n"
                   "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
                   "🔥 <b>Ngọn lửa:</b> Phát hiện! (ADC: " + String(val_NL) + ")\n"
                   "🌡 <b>Nhiệt độ:</b> " + String(val_ND, 1) + " °C\n"
                   "📢 <b>Còi & LED:</b> Đang hú 10Hz dồn dập tại chỗ!";
+      } else if (level_RD == 2) {
+        snprintf(line0, sizeof(line0), "RUNG CHAN: %0.2fg", val_RD);
+        snprintf(line1, sizeof(line1), "! DONG DAT !    ");
+        currentEvent = "earthquake";
+        teleMsg = "🚨🚨 <b>[CẢNH BÁO ĐỘNG ĐẤT NGUY HIỂM]</b>\n"
+                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                  "⚠️ <b>Rung chấn:</b> " + String(val_RD, 2) + "g (> 0.5g)!\n"
+                  "📢 <b>Còi & LED:</b> Đang hú 10Hz khẩn cấp tại chỗ!\n"
+                  "⚠️ <i>Hãy tìm nơi trú ẩn an toàn ngay lập tức!</i>";
       } else {
-        lcdLine2 = "! NHIET DO CAO !";
+        snprintf(line0, sizeof(line0), "NHIET DO: %0.1fC ", val_ND);
+        snprintf(line1, sizeof(line1), "!NHIET DO CAO!  ");
         currentEvent = "temp_high";
         teleMsg = "🌡🚨 <b>[CẢNH BÁO NHIỆT ĐỘ QUÁ CAO]</b>\n"
                   "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
@@ -580,29 +546,36 @@ void loop() {
                   "📢 <b>Còi & LED:</b> Đang hú 10Hz tại chỗ!";
       }
     } else if (system_max_level == 1) {
-      if (level_RD == 1) {
-        lcdLine2 = "Rung nhe        ";
-        currentEvent = "vibration_light";
-        teleMsg = "⚠️ <b>[CẢNH BÁO RUNG NHẸ]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "ℹ️ Rung chấn: " + String(val_RD, 2) + "g (0.2g - 0.5g)\n"
-                  "📢 Còi nhấp nháy 1Hz cảnh báo.";
-      } else if (level_NL == 1) {
-        lcdLine2 = "Canh bao som    ";
+      if (level_NL == 1) {
+        snprintf(line0, sizeof(line0), "LUA: %-4d [CANH]", val_NL);
+        snprintf(line1, sizeof(line1), "CANH BAO LUA!   ");
         currentEvent = "flame_early";
         teleMsg = "⚠️ <b>[CẢNH BÁO SỚM NGỌN LỬA]</b>\n"
                   "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
                   "ℹ️ Bức xạ lửa khả nghi (ADC: " + String(val_NL) + ")\n"
                   "📢 Còi nhấp nháy 1Hz.";
+      } else if (level_RD == 1) {
+        snprintf(line0, sizeof(line0), "RUNG CHAN: %0.2fg", val_RD);
+        snprintf(line1, sizeof(line1), "CANH BAO RUNG   ");
+        currentEvent = "vibration_light";
+        teleMsg = "⚠️ <b>[CẢNH BÁO RUNG NHẸ]</b>\n"
+                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                  "ℹ️ Rung chấn: " + String(val_RD, 2) + "g (0.2g - 0.5g)\n"
+                  "📢 Còi nhấp nháy 1Hz cảnh báo.";
       } else {
-        lcdLine2 = "Nhiet do TB     ";
+        snprintf(line0, sizeof(line0), "NHIET DO: %0.1fC ", val_ND);
+        snprintf(line1, sizeof(line1), "CANH BAO NHIET  ");
         currentEvent = "temp_medium";
         teleMsg = "⚠️ <b>[CẢNH BÁO NHIỆT ĐỘ TRUNG BÌNH]</b>\n"
                   "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
                   "ℹ️ Nhiệt độ: " + String(val_ND, 1) + " °C (38°C - 45°C).";
       }
     } else {
-      lcdLine2 = "An Toan         ";
+      // TRẠNG THÁI BÌNH THƯỜNG / AN TOÀN:
+      // Hàng 0: Hiển thị giá trị cảm biến Lửa (ADC) rất rõ ràng kèm trạng thái [OK]
+      snprintf(line0, sizeof(line0), "LUA: %-4d   [OK] ", val_NL);
+      // Hàng 1: Hiển thị độ rung chấn (g) và nhiệt độ (°C)
+      snprintf(line1, sizeof(line1), "R:%0.1fg  T:%2.0fC   ", val_RD, val_ND);
       currentEvent = "safe";
       teleMsg = "✅ <b>[HỆ THỐNG AN TOÀN TRỞ LẠI]</b>\n"
                 "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
@@ -610,21 +583,13 @@ void loop() {
                 "ℹ️ Các chỉ số cảm biến đã về mức an toàn.";
     }
 
-    // Hiển thị màn hình LCD
     lcd.setCursor(0, 0);
-    lcd.print("R:");
-    lcd.print(val_RD, 1);
-    lcd.print("g L:");
-    lcd.print(val_NL);
-    lcd.print(" T:");
-    lcd.print((int)val_ND);
-    lcd.print("C  ");
-
+    lcd.print(line0);
     lcd.setCursor(0, 1);
-    lcd.print(lcdLine2);
+    lcd.print(line1);
 
-    // Kích hoạt gửi Telegram ngầm (Chạy trên Core 0, không làm trễ còi)
-    triggerAlert(currentEvent, lcdLine2, teleMsg);
+    // Kích hoạt gửi Telegram ngầm trên Core 0 (Không làm chậm còi)
+    triggerAlert(currentEvent, String(line1), teleMsg);
   }
 
   // 4. ĐIỀU KHIỂN CÒI & LED THEO CHU KỲ (NON-BLOCKING)
@@ -632,7 +597,6 @@ void loop() {
     setBuzzer(false);
     digitalWrite(PIN_LED_ALERT, LOW);
   } else if (system_max_level == 1) {
-    // 1Hz: 500ms ON / 500ms OFF
     if (currentMillis - timer_blink >= 500) {
       timer_blink = currentMillis;
       toggle_state = !toggle_state;
@@ -640,7 +604,6 @@ void loop() {
       digitalWrite(PIN_LED_ALERT, toggle_state ? HIGH : LOW);
     }
   } else if (system_max_level == 2 || sensor_offline) {
-    // 10Hz: 50ms ON / 50ms OFF dồn dập
     if (currentMillis - timer_blink >= 50) {
       timer_blink = currentMillis;
       toggle_state = !toggle_state;
@@ -649,7 +612,7 @@ void loop() {
     }
   }
 
-  // 5. TỰ ĐỘNG KẾT NỐI LẠI WI-FI (Mỗi 10 giây nếu mất mạng, không gây treo còi)
+  // 5. TỰ ĐỘNG KẾT NỐI LẠI WI-FI (Không gây treo còi)
   if (currentMillis - timer_wifi_check >= 10000) {
     timer_wifi_check = currentMillis;
     if (WiFi.status() != WL_CONNECTED) {
