@@ -11,7 +11,7 @@
 #define PIN_I2C_SDA         21  // SDA (MPU6050 / ADXL345 & LCD 1602)
 #define PIN_I2C_SCL         22  // SCL (MPU6050 / ADXL345 & LCD 1602)
 #define PIN_DHT             4   // Cảm biến nhiệt độ DHT11
-#define PIN_FLAME_ANALOG    34  // Cảm biến ngọn lửa Analog AO
+#define PIN_FLAME_ANALOG    34  // Cảm biến ngọn lửa Analog AO (ADC1_CH6 - an toàn với Wi-Fi)
 #define PIN_BUTTON_TEST     15  // Nút nhấn Test (Active LOW)
 #define PIN_BUZZER          25  // Còi báo động (GPIO 25)
 #define PIN_LED_ALERT       26  // Đèn LED cảnh báo (GPIO 26)
@@ -31,8 +31,8 @@
 #define ENABLE_TELEGRAM           1
 
 // Tên & Mật khẩu Wi-Fi (Băng tần 2.4GHz):
-const char* WIFI_SSID             = "A";  // Tên Wi-Fi của bạn
-const char* WIFI_PASSWORD         = "chodehuy";   // Mật khẩu Wi-Fi của bạn
+const char* WIFI_SSID             = "A";          // Tên Wi-Fi
+const char* WIFI_PASSWORD         = "chodehuy";   // Mật khẩu Wi-Fi
 
 // Thông tin Bot Telegram:
 const char* TELEGRAM_BOT_TOKEN    = "8622569426:AAGOlFk9Zfhxlj6d-WGSGb9C-GCdcYLM-9U";
@@ -48,7 +48,7 @@ const char* DEVICE_ID             = "kitchen-01";
 // ======================================================================================
 // A. Rung động (RĐ - đơn vị: g):
 const float RD_SAFE_MAX   = 0.20; // RĐ < 0.2g: An toàn
-const float RD_WARN_MAX   = 0.70; // 0.2g - 0.5g: Rung nhẹ | RĐ > 0.5g: ĐỘNG ĐẤT NGUY HIỂM
+const float RD_WARN_MAX   = 0.70; // 0.2g - 0.7g: Rung nhẹ | RĐ > 0.7g: ĐỘNG ĐẤT NGUY HIỂM
 
 // B. Nhiệt độ (NĐ - đơn vị: độ C):
 const float ND_SAFE_MAX   = 38.0; // NĐ < 38°C: An toàn
@@ -79,10 +79,10 @@ bool is_mpu6050 = false;
 bool is_adxl345 = false;
 bool sensor_offline = false;
 
-unsigned long timer_sample    = 0;
-unsigned long timer_dht       = 0;
-unsigned long timer_blink     = 0;
-unsigned long timer_wifi_check= 0;
+unsigned long timer_sample     = 0;
+unsigned long timer_dht        = 0;
+unsigned long timer_blink      = 0;
+unsigned long timer_wifi_check = 0;
 bool toggle_state = false;
 
 String last_alert_event = "safe";
@@ -488,7 +488,7 @@ void loop() {
       level_ND = 0;
     }
 
-    // C. Nhánh Ngọn Lửa
+    // C. Nhánh Ngọn Lửa (Vẫn quét đầy đủ để gửi Telegram từ xa)
     if (val_NL < NL_FIRE_MAX) {
       level_NL = 2; // Báo Cháy
     } else if (val_NL <= NL_WARN_MAX) {
@@ -497,13 +497,15 @@ void loop() {
       level_NL = 0;
     }
 
-    system_max_level = max(level_RD, max(level_ND, level_NL));
+    // Cấp độ cảnh báo tại chỗ (LCD & Còi): Ưu tiên Rung Động & Nhiệt Độ (bỏ thông báo lửa trên LCD)
+    int local_alert_level = max(level_RD, level_ND);
+    system_max_level = max(local_alert_level, level_NL);
 
     // ====================================================================
     // [QUAN TRỌNG] BẬT BÁO ĐỘNG TỨC THÌ (ZERO DELAY) KHI VỪA PHÁT HIỆN
     // ====================================================================
     if (system_max_level == 2 && prev_system_level != 2) {
-      // Động đất hoặc cháy: Bật còi & đèn NGAY Ở MILIGIÂY ĐẦU TIÊN!
+      // Bật còi & đèn NGAY Ở MILIGIÂY ĐẦU TIÊN khi có nguy hiểm!
       setBuzzer(true);
       digitalWrite(PIN_LED_ALERT, HIGH);
       toggle_state = true;
@@ -511,76 +513,79 @@ void loop() {
     }
     prev_system_level = system_max_level;
 
-    // --- HIỂN THỊ MÀN HÌNH LCD 1602 (CHUẨN 16 KÝ TỰ, ƯU TIÊN HIỂN THỊ CẢM BIẾN LỬA) ---
+    // --- HIỂN THỊ MÀN HÌNH LCD 1602 (CHUẨN 16 KÝ TỰ, GIỮ THÔNG BÁO "An Toan", BỎ THÔNG BÁO LỬA TRÊN LCD) ---
     char line0[17];
     char line1[17];
     String currentEvent = "safe";
     String teleMsg = "";
 
-    if (system_max_level == 2) {
-      if (level_NL == 2) {
-        snprintf(line0, sizeof(line0), "LUA: %-4d [CHAY]", val_NL);
-        snprintf(line1, sizeof(line1), "!CANH BAO CHAY! ");
-        currentEvent = "fire_alarm";
-        teleMsg = "🔥🚨 <b>[CẢNH BÁO CHÁY KHẨN CẤP]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "🔥 <b>Ngọn lửa:</b> Phát hiện! (ADC: " + String(val_NL) + ")\n"
-                  "🌡 <b>Nhiệt độ:</b> " + String(val_ND, 1) + " °C\n"
-                  "📢 <b>Còi & LED:</b> Đang hú 10Hz dồn dập tại chỗ!";
-      } else if (level_RD == 2) {
-        snprintf(line0, sizeof(line0), "RUNG CHAN: %0.2fg", val_RD);
-        snprintf(line1, sizeof(line1), "! DONG DAT !    ");
-        currentEvent = "earthquake";
-        teleMsg = "🚨🚨 <b>[CẢNH BÁO ĐỘNG ĐẤT NGUY HIỂM]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "⚠️ <b>Rung chấn:</b> " + String(val_RD, 2) + "g (> 0.5g)!\n"
-                  "📢 <b>Còi & LED:</b> Đang hú 10Hz khẩn cấp tại chỗ!\n"
-                  "⚠️ <i>Hãy tìm nơi trú ẩn an toàn ngay lập tức!</i>";
-      } else {
-        snprintf(line0, sizeof(line0), "NHIET DO: %0.1fC ", val_ND);
-        snprintf(line1, sizeof(line1), "!NHIET DO CAO!  ");
-        currentEvent = "temp_high";
-        teleMsg = "🌡🚨 <b>[CẢNH BÁO NHIỆT ĐỘ QUÁ CAO]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "🌡 <b>Nhiệt độ:</b> " + String(val_ND, 1) + " °C (> 45°C)!\n"
-                  "📢 <b>Còi & LED:</b> Đang hú 10Hz tại chỗ!";
-      }
-    } else if (system_max_level == 1) {
-      if (level_NL == 1) {
-        snprintf(line0, sizeof(line0), "LUA: %-4d [CANH]", val_NL);
-        snprintf(line1, sizeof(line1), "CANH BAO LUA!   ");
-        currentEvent = "flame_early";
-        teleMsg = "⚠️ <b>[CẢNH BÁO SỚM NGỌN LỬA]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "ℹ️ Bức xạ lửa khả nghi (ADC: " + String(val_NL) + ")\n"
-                  "📢 Còi nhấp nháy 1Hz.";
-      } else if (level_RD == 1) {
-        snprintf(line0, sizeof(line0), "RUNG CHAN: %0.2fg", val_RD);
-        snprintf(line1, sizeof(line1), "CANH BAO RUNG   ");
-        currentEvent = "vibration_light";
-        teleMsg = "⚠️ <b>[CẢNH BÁO RUNG NHẸ]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "ℹ️ Rung chấn: " + String(val_RD, 2) + "g (0.2g - 0.5g)\n"
-                  "📢 Còi nhấp nháy 1Hz cảnh báo.";
-      } else {
-        snprintf(line0, sizeof(line0), "NHIET DO: %0.1fC ", val_ND);
-        snprintf(line1, sizeof(line1), "CANH BAO NHIET  ");
-        currentEvent = "temp_medium";
-        teleMsg = "⚠️ <b>[CẢNH BÁO NHIỆT ĐỘ TRUNG BÌNH]</b>\n"
-                  "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
-                  "ℹ️ Nhiệt độ: " + String(val_ND, 1) + " °C (38°C - 45°C).";
-      }
+    // 1. XÁC ĐỊNH SỰ KIỆN GỬI TELEGRAM (GIỮ NGUYÊN ĐẦY ĐỦ CẢ LỬA, ĐỘNG ĐẤT, NHIỆT ĐỘ)
+    if (level_RD == 2) {
+      currentEvent = "earthquake";
+      teleMsg = "🚨🚨 <b>[CẢNH BÁO ĐỘNG ĐẤT NGUY HIỂM]</b>\n"
+                "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                "⚠️ <b>Rung chấn:</b> " + String(val_RD, 2) + "g (> 0.5g)!\n"
+                "📢 <b>Còi & LED:</b> Đang hú 10Hz khẩn cấp tại chỗ!\n"
+                "⚠️ <i>Hãy tìm nơi trú ẩn an toàn ngay lập tức!</i>";
+    } else if (level_NL == 2) {
+      // GIỮ NGUYÊN GỬI BÁO CHÁY ĐẾN TELEGRAM
+      currentEvent = "fire_alarm";
+      teleMsg = "🔥🚨 <b>[CẢNH BÁO CHÁY KHẨN CẤP]</b>\n"
+                "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                "🔥 <b>Ngọn lửa:</b> Phát hiện! (ADC: " + String(val_NL) + ")\n"
+                "🌡 <b>Nhiệt độ:</b> " + String(val_ND, 1) + " °C\n"
+                "📢 <b>Cảnh báo từ xa:</b> Đã gửi đến Telegram!";
+    } else if (level_ND == 2) {
+      currentEvent = "temp_high";
+      teleMsg = "🌡🚨 <b>[CẢNH BÁO NHIỆT ĐỘ QUÁ CAO]</b>\n"
+                "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                "🌡 <b>Nhiệt độ:</b> " + String(val_ND, 1) + " °C (> 45°C)!\n"
+                "📢 <b>Còi & LED:</b> Đang hú 10Hz tại chỗ!";
+    } else if (level_RD == 1) {
+      currentEvent = "vibration_light";
+      teleMsg = "⚠️ <b>[CẢNH BÁO RUNG NHẸ]</b>\n"
+                "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                "ℹ️ Rung chấn: " + String(val_RD, 2) + "g (0.2g - 0.5g)\n"
+                "📢 Còi nhấp nháy 1Hz cảnh báo.";
+    } else if (level_NL == 1) {
+      // GIỮ NGUYÊN CẢNH BÁO SỚM ĐẾN TELEGRAM
+      currentEvent = "flame_early";
+      teleMsg = "⚠️ <b>[CẢNH BÁO SỚM NGỌN LỬA]</b>\n"
+                "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                "ℹ️ Bức xạ lửa khả nghi (ADC: " + String(val_NL) + ")\n"
+                "📢 Cảnh báo từ xa đã kích hoạt.";
+    } else if (level_ND == 1) {
+      currentEvent = "temp_medium";
+      teleMsg = "⚠️ <b>[CẢNH BÁO NHIỆT ĐỘ TRUNG BÌNH]</b>\n"
+                "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
+                "ℹ️ Nhiệt độ: " + String(val_ND, 1) + " °C (38°C - 45°C).";
     } else {
-      // TRẠNG THÁI BÌNH THƯỜNG / AN TOÀN:
-      // Hàng 0: Hiển thị giá trị cảm biến Lửa (ADC) rất rõ ràng kèm trạng thái [OK]
-      snprintf(line0, sizeof(line0), "LUA: %-4d   [OK] ", val_NL);
-      // Hàng 1: Hiển thị độ rung chấn (g) và nhiệt độ (°C)
-      snprintf(line1, sizeof(line1), "R:%0.1fg  T:%2.0fC   ", val_RD, val_ND);
       currentEvent = "safe";
       teleMsg = "✅ <b>[HỆ THỐNG AN TOÀN TRỞ LẠI]</b>\n"
                 "📍 <b>Khu vực:</b> " + String(DEVICE_ID) + "\n"
                 "🔇 Còi & Đèn LED: ĐÃ TẮT.\n"
                 "ℹ️ Các chỉ số cảm biến đã về mức an toàn.";
+    }
+
+    // 2. HIỂN THỊ MÀN HÌNH LCD: BỎ BÁO LỬA TRÊN LCD, GIỮ NGUYÊN THÔNG BÁO "An Toan"
+    if (level_RD == 2) {
+      snprintf(line0, sizeof(line0), "RUNG CHAN: %0.2fg", val_RD);
+      snprintf(line1, sizeof(line1), "! DONG DAT !    ");
+    } else if (level_ND == 2) {
+      snprintf(line0, sizeof(line0), "NHIET DO: %0.1fC ", val_ND);
+      snprintf(line1, sizeof(line1), "!NHIET DO CAO!  ");
+    } else if (level_RD == 1) {
+      snprintf(line0, sizeof(line0), "RUNG CHAN: %0.2fg", val_RD);
+      snprintf(line1, sizeof(line1), "CANH BAO RUNG   ");
+    } else if (level_ND == 1) {
+      snprintf(line0, sizeof(line0), "NHIET DO: %0.1fC ", val_ND);
+      snprintf(line1, sizeof(line1), "CANH BAO NHIET  ");
+    } else {
+      // TRẠNG THÁI BÌNH THƯỜNG / AN TOÀN:
+      // Hàng 0: Hiển thị độ rung chấn (g) và nhiệt độ (°C), hoàn toàn bỏ cảm biến lửa trên LCD
+      snprintf(line0, sizeof(line0), "R:%0.1fg  T:%2.1fC  ", val_RD, val_ND);
+      // Hàng 1: GIỮ NGUYÊN THÔNG BÁO "An Toan"
+      snprintf(line1, sizeof(line1), "An Toan         ");
     }
 
     lcd.setCursor(0, 0);
