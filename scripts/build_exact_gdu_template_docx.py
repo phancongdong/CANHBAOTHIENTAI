@@ -212,6 +212,8 @@ def add_figure(filename, caption_text, width=Inches(5.8)):
         found_path = filename
     elif os.path.exists(os.path.join(images_dir, filename)):
         found_path = os.path.join(images_dir, filename)
+    elif os.path.exists(os.path.join(r"c:\CANHBAOTHIENTAI\docs\images", filename)):
+        found_path = os.path.join(r"c:\CANHBAOTHIENTAI\docs\images", filename)
     elif os.path.exists(os.path.join(base_dir, filename)):
         found_path = os.path.join(base_dir, filename)
 
@@ -727,6 +729,7 @@ add_p("Bước 2 - Lấy mẫu cảm biến và Giám sát phần cứng: Trên 
 add_p("Bước 3 - So khớp ngưỡng và Xác định cấp độ nguy hiểm: Giá trị cảm biến được so sánh với các ngưỡng cài đặt trong bộ nhớ flash: nếu rung chấn >0.5g (Động đất) hoặc lửa ADC <2800 (Báo cháy) hoặc nhiệt độ >45°C (Quá nhiệt), hệ thống xác lập Cấp độ nguy hiểm 2 (ALARM - 10Hz). Nếu trong khoảng cảnh báo sớm, xác lập Cấp độ 1 (SUSPECT - 1Hz). Nếu dưới ngưỡng, xác lập Cấp độ 0 (NORMAL - An toàn).")
 add_p("Bước 4 - Kích hoạt còi/đèn tức thì (0ms) và Đẩy tác vụ mạng sang Core 0: Ngay khi phát hiện Cấp độ 2, Core 1 bật còi và đèn sáng NGAY LẬP TỨC (0ms delay) để bảo vệ tính mạng người tại chỗ. Đồng thời, thông điệp cảnh báo được nạp vào hàng đợi bộ nhớ và đánh thức Core 0 gửi bản tin Telegram và VPS chạy nền mà không làm gián đoạn nhịp hú 10Hz của còi.")
 add_p("Bước 5 - Máy chủ VPS tiếp nhận, Lưu trữ và Bắn thông báo Telegram: Máy chủ VPS xác thực Token, lưu dữ liệu vào SQLite, kiểm tra thời gian Cooldown 60s và đẩy vào bảng Outbox. Tiến trình Worker chạy độc lập sẽ gọi Telegram Bot API gửi ngay Push Notification có đầy đủ số liệu và khuyến cáo về điện thoại người dùng.")
+add_figure("so_do_nguyen_ly_hoat_dong.jpg", "Hình 0.2. Sơ đồ mô tả dòng chảy dữ liệu và nguyên lý hoạt động tổng thể của hệ thống", width=Inches(5.8))
 
 # CHƯƠNG 1: GIỚI THIỆU TỔNG QUAN ĐỀ TÀI (1.5 ĐIỂM)
 add_heading_1("CHƯƠNG 1: GIỚI THIỆU TỔNG QUAN ĐỀ TÀI")
@@ -797,6 +800,7 @@ add_bullet("Đèn LED cảnh báo đỏ (GPIO 26): Đèn LED siêu sáng đượ
 
 add_heading_2("2.6. Màn hình hiển thị LCD 1602 kết hợp Module chuyển đổi I2C PCF8574")
 add_p("Màn hình tinh thể lỏng LCD 1602 có khả năng hiển thị 2 dòng, mỗi dòng 16 ký tự chữ số. Để tiết kiệm chân GPIO của ESP32, màn hình được hàn tích hợp module chuyển đổi nối tiếp sang song song PCF8574. Nhờ đó, thay vì phải tốn 6 đến 10 chân điều khiển song song, toàn bộ màn hình LCD chỉ sử dụng đúng 2 dây SDA (GPIO 21) và SCL (GPIO 22) chung với bus I2C của cảm biến gia tốc.")
+add_figure("lcd1602_module.jpg", "Hình 2.6. Màn hình tinh thể lỏng LCD 1602 kết hợp module chuyển đổi I2C PCF8574", width=Inches(3.8))
 add_p("Nội dung hiển thị trên LCD được thiết kế trực quan:")
 add_bullet("Dòng 1: Hiển thị liên tục các giá trị đo cảm biến: R: [vibration]g | L: [flame_adc] | T: [temp]C.", "Dòng thông số: ")
 add_bullet("Dòng 2: Hiển thị trạng thái vận hành: 'An Toan' (Bình thường), '! DONG DAT !' (Động đất), '! CANH BAO CHAY!' (Báo cháy), hoặc '! LOI CAM BIEN !' (Lỗi phần cứng).", "Dòng trạng thái: ")
@@ -832,6 +836,7 @@ add_bullet("Bao gồm cảm biến gia tốc 3 trục MPU-6050/ADXL345 (đo rung
 add_bullet("Bộ vi điều khiển ESP32 DevKit V1 đảm nhận tiếp nhận dữ liệu cảm biến, thực thi thuật toán so khớp ngưỡng, điều khiển đa luồng FreeRTOS và đóng gói truyền thông.", "3. Khối Xử lý Trung tâm (MCU Core): ")
 add_bullet("Còi báo động Active Buzzer, Đèn LED cảnh báo khẩn cấp và Màn hình LCD 1602 I2C thực hiện phát tín hiệu âm thanh, ánh sáng và chữ viết tại chỗ.", "4. Khối Chấp hành & Hiển thị (Local Actuators): ")
 add_bullet("Máy chủ VPS Linux trung gian (FastAPI + Transactional Outbox SQLite) và Ứng dụng Telegram Bot trên điện thoại thông minh tiếp nhận dữ liệu và đẩy thông báo đẩy thời gian thực.", "5. Khối Truyền thông Đám mây (Cloud & Telegram): ")
+add_figure("so_do_khoi_he_thong.jpg", "Hình 3.1. Sơ đồ khối kiến trúc phần cứng tổng thể của Hệ thống Cảnh báo Thiên tai đa năng", width=Inches(5.6))
 
 add_heading_2("3.2. Bảng ánh xạ kết nối chân phần cứng (Pinout Mapping)")
 add_p("Toàn bộ các chân GPIO của ESP32 được phân bổ khoa học, tối ưu đường mạch và không xung đột tài nguyên phần cứng:")
@@ -853,7 +858,9 @@ add_table_data(pin_headers, pin_rows, [Inches(1.0), Inches(1.2), Inches(1.8), In
 
 add_heading_2("3.3. Sơ đồ nguyên lý đấu nối dây hệ thống (Wiring Diagram)")
 add_p("Dưới đây là sơ đồ nối chân phần cứng chuẩn tỷ lệ 16:9 được thiết kế trực quan, thể hiện rõ ràng toàn bộ kết nối giữa ESP32 và các module:")
-add_figure(pinout_img, "Hình 3.1. Sơ đồ nối chân phần cứng chi tiết của Hệ thống Cảnh báo Thiên tai đa năng ESP32", width=Inches(6.2))
+add_figure(pinout_img, "Hình 3.2. Sơ đồ nối chân phần cứng chi tiết của Hệ thống Cảnh báo Thiên tai đa năng ESP32", width=Inches(6.2))
+add_p("Bên cạnh bảng nối chân, mô hình đấu nối dây thực tế trên Breadboard được mô phỏng trực quan giúp quá trình lắp ráp mạch diễn ra chuẩn xác, tránh ngắn mạch:")
+add_figure("so_do_dau_noi_breadboard.jpg", "Hình 3.3. Sơ đồ nguyên lý đấu nối dây các linh kiện phần cứng trên Breadboard", width=Inches(5.8))
 
 add_heading_2("3.4. Lưu đồ thuật toán điều khiển chi tiết và giải thuật phân loại sự cố")
 add_p("Hệ thống hoạt động dựa trên thuật toán phân cấp ưu tiên nguy cơ (Priority Alarm Algorithm). Trong mỗi chu kỳ lấy mẫu, ba nhánh cảm biến được đánh giá độc lập:")
@@ -895,7 +902,7 @@ exp_rows = [
 ]
 add_table_data(exp_headers, exp_rows, [Inches(1.5), Inches(0.8), Inches(0.8), Inches(0.8), Inches(1.2), Inches(1.2), Inches(1.1)])
 
-add_figure("do_tre_dap_ung_canh_bao.png", "Hình 3.2. Biểu đồ so sánh độ trễ kích hoạt còi tại chỗ trước và sau khi ứng dụng FreeRTOS đa nhân", width=Inches(5.5))
+add_figure("do_tre_dap_ung_canh_bao.png", "Hình 3.4. Biểu đồ so sánh độ trễ kích hoạt còi tại chỗ trước và sau khi ứng dụng FreeRTOS đa nhân", width=Inches(5.5))
 add_p("Phân tích hiệu năng:")
 add_bullet("Độ trễ kích hoạt còi tại chỗ: Trước khi tối ưu FreeRTOS, còi bị trễ từ 2.2 đến 3.8 giây do phải đợi bắt tay mạng SSL. Sau khi tối ưu FreeRTOS, thời gian còi kêu đạt mức tức thời (xấp xỉ 0ms, chính xác là dưới 2ms kể từ khi cảm biến phát hiện ngưỡng).", "Độ trễ còi tại chỗ:")
 add_bullet("Độ trễ nhận tin Telegram: Trung bình đạt từ 0.8 giây đến 1.2 giây trên mạng Wi-Fi và mạng di động 4G. Đây là tốc độ cực kỳ ấn tượng đối với một hệ thống cảnh báo từ xa.", "Độ trễ Telegram:")
@@ -1038,6 +1045,7 @@ add_code_block(sample_code)
 
 add_heading_2("Phụ lục B: Sơ đồ nối chân phần cứng 16:9 và hình ảnh mô hình thực tế")
 add_figure(pinout_img, "Hình B.1. Sơ đồ nối dây phần cứng chi tiết của hệ thống (Định dạng chuẩn 16:9)", width=Inches(6.0))
+add_figure("so_do_dau_noi_breadboard.jpg", "Hình B.2. Sơ đồ bố trí và đấu nối dây mô hình phần cứng thực nghiệm trên Breadboard", width=Inches(5.8))
 
 add_heading_2("Phụ lục C: Bảng dữ liệu viễn trắc (Telemetry log) trích xuất từ SQLite VPS")
 add_p("Trích xuất nhật ký dữ liệu cảm biến lưu trữ thực tế tại máy chủ VPS (/opt/canhbaothientai/data/fire_alarm.db):")
