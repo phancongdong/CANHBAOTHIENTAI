@@ -1,5 +1,8 @@
 # Hệ Thống Cảnh Báo Cháy ESP32 → VPS → Telegram
 
+> 💬 **Cộng đồng**: Trao đổi AI, Quant, Bot trade tại: https://t.me/donkquantlab
+
+
 > **LƯU Ý AN TOÀN:**
 > Dự án này là hệ thống nguyên mẫu IoT cảnh báo hỗ trợ, **không thay thế** các hệ thống báo cháy đạt chuẩn PCCC hoặc quy định pháp luật hiện hành.
 > Còi báo động tại chỗ được thiết kế hoạt động độc lập 100% với Internet và mạng Wi-Fi.
